@@ -1,9 +1,26 @@
 # simple web mvc frame
-a simple c++ web mvc framework
+⼀个轻量级的 web mvc 框架
 
 ## 框架特点
 
-支持GET、POST两种HTTP请求；静态资源文件访问；文件上传
+1. 完全独立：不依赖任何第三方库
+2. 高性能：微妙级相应
+3. 高并发：单机百万连接
+4. IO多路复用模型：select、poll、epoll 均支持
+5. 支持 GET、POST 两种 HTTP 请求
+6. 自动路由：根据 URL 路径自动匹配
+7. 控制器自动加载：通过 C++ 反射技术
+8. 支持 Json 数据格式
+9. 静态资源文件访问
+10. 文件上传
+
+## 架构设计
+
+![image-20240302111001698](imgs/image-20240302111001698.png)
+
+## 代码结构
+
+![image-20240302111713126](imgs/image-20240302111713126.png)
 
 ## Todo
 
