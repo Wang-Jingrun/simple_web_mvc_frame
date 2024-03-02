@@ -177,6 +177,9 @@ bool Socket::set_linger(bool active, int seconds)
 	return true;
 }
 
+// 设置套接字的TCP Keep-Alive选项
+// 	TCP Keep-Alive 用于检测在长时间空闲之后是否断开了TCP连接。
+// 通过启用Keep-Alive选项，可以使操作系统定期发送探测报文到对端，以检测连接的有效性。
 bool Socket::set_keepalive()
 {
 	int flag = 1;
@@ -188,9 +191,8 @@ bool Socket::set_keepalive()
 	return true;
 }
 
-// 设置套接字的TCP Keep-Alive选项
-// 	TCP Keep-Alive 用于检测在长时间空闲之后是否断开了TCP连接。
-// 通过启用Keep-Alive选项，可以使操作系统定期发送探测报文到对端，以检测连接的有效性。
+// ⼀般服务器的监听socket都应该打开SO_REUSEADDR
+// 允许服务器bind⼀个地址，即使这个地址当前已经存在已建⽴的连接
 bool Socket::set_reuseaddr()
 {
 	int flag = 1;
