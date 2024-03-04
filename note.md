@@ -269,9 +269,11 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 ::send(connfd, buf, len, 0); // 原数据返回给客户端
 ```
 
-# 二、高级I/O函数
+# 二、其他
 
-## 1.pipe 函数
+## 1.高级I/O函数
+
+### pipe 函数
 
 > ```cpp
 > #include <unistd.h>
@@ -290,7 +292,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 > - 成功创建返回0，失败：返回-1。
 >
 
-## 2.dup 函数和 dup2 函数
+### dup 函数和 dup2 函数
 
 > ```cpp
 > #include <unistd.h>
@@ -319,7 +321,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 > 返回值：
 > - 成功返回目标文件描述符的值，失败返回-1
 
-## 3.readv 函数和 writev 函数
+### readv 函数和 writev 函数
 
 > ```cpp
 > #include <sys/uio.h>
@@ -357,7 +359,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 
 HTTP应答可以用 writev 函数实现
 
-## 4.sendfile 函数
+### sendfile 函数
 
 > ```cpp
 > #include <sys/sendfile.h>
@@ -377,7 +379,7 @@ HTTP应答可以用 writev 函数实现
 >
 > - 成功传输返回实际传输的字节数，返回-1。
 
-## 5.mmap 函数和 munmap 函数
+### mmap 函数和 munmap 函数
 
 > ```cpp
 > #include <sys/mman.h>
@@ -415,7 +417,7 @@ HTTP应答可以用 writev 函数实现
 >
 > - 成功返回0，失败返回-1。
 
-## 6.splice 函数
+### splice 函数
 
 > ```cpp
 > #include <fcntl.h>
@@ -439,7 +441,7 @@ HTTP应答可以用 writev 函数实现
 
 一般两个splice函数成对使用，一个往管道里写，一个从管道里读
 
-## 7.tee 函数
+### tee 函数
 
 > ```cpp
 > #include <fcntl.h>
@@ -461,7 +463,7 @@ HTTP应答可以用 writev 函数实现
 
 调用 `tee` 函数后，数据将从源文件描述符读取到用户空间缓冲区，然后再从用户空间缓冲区复制到目标文件描述符。这种复制方式涉及用户空间和内核空间之间的数据拷贝，效率相对较低。与 `splice` 函数相比，`tee` 函数的主要优点是可以在复制过程中查看数据，而不仅仅是传输到目标文件描述符。
 
-## 8.fcntl 函数
+### fcntl 函数
 
 > ```cpp
 > #include <fcntl.h>
@@ -492,6 +494,110 @@ HTTP应答可以用 writev 函数实现
 > - `F_GETLK`：获取文件记录锁。
 > - `F_SETLK`：设置文件记录锁。
 > - `F_SETLKW`：设置文件记录锁，如果锁不可用则等待。
+
+## 2.信号
+
+### Linux 信号概述
+
+Linux 系统中，信号是一种通信方式，通常用作用户、系统或进程给**目标进程**发送的信息。
+
+信号的作用：通知目标**进程**某个状态的改变或系统异常。
+
+产生的条件：
+
+- 对于终端程序，可以是用户输入的特殊的终端字符，比如 ctrl+c 是中断信号
+- 系统异常，如浮点异常或非法内存访问
+- 系统状态变化
+- 用户运行 kill 命令或程序调用 kill 函数
+
+### 发送信号 kill
+
+> ```cpp
+> #include <sys/types.h>
+> #include <signal.h>
+> int kill(pid_t pid, int sig);
+> ```
+>
+> 功能：用于向指定的进程发送信号
+>
+> 参数：
+>
+> - `pid` 参数是要发送信号的进程的进程ID。可以指定进程ID来发送信号给特定的进程，或者使用特定的值：
+>   - `-1`：发送信号给所有具有相同用户ID的进程。
+>   - `0`：发送信号给与调用进程在同一进程组中的所有进程。
+>   - `<-1`：发送信号给进程组ID等于 `pid` 绝对值的所有进程。
+>
+> - `sig` 参数是要发送的信号的编号。信号编号是整数值，用于标识不同的信号类型。
+>   - `SIGINT`（2）：终端中断信号，通常由 Ctrl+C 生成。
+>   - `SIGTERM`（15）：终止信号，用于请求进程正常终止。
+>   - `SIGKILL`（9）：强制终止信号，用于立即终止进程。.
+>   - `SIGSTOP`（19）：停止信号，用于暂停进程的执行。
+>   - 。。。
+>
+> 返回值：
+>
+> - 成功 0，失败返回 -1。
+
+### 信号处理 signal sigaction
+
+信号处理方式是指接收到信号后，目标进程采取的响应方式。目标进程可以为每个信号注册一个信号处理程序，用于处理接收到的信号。
+
+在Linux中，可以使用两种函数来设置信号处理程序：
+
+1. `signal` 函数：
+
+> ```cpp
+> #include <signal.h>
+> typedef void (*sighandler_t)(int);
+> sighandler_t signal(int signum, sighandler_t handler);
+> ```
+>
+> 功能：用于设置信号的处理程序
+>
+> 参数：
+>
+> - `signum`：要设置处理程序的信号编号。
+>
+> - `handler`：指向信号处理程序的函数指针。可以设置为以下三种类型：
+>  - 函数指针：当接收到信号时，执行该函数。
+>   - `SIG_IGN`：忽略信号。
+>   - `SIG_DFL`：按照默认动作执行信号。
+> 
+>`signal`函数返回之前的信号处理程序的函数指针。
+
+2. `sigaction` 函数：
+
+> ```cpp
+> #include <signal.h>
+> int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+> ```
+>
+> 功能：`sigaction`函数可以设置信号的处理程序，并且支持更复杂的信号处理操作，如支持可靠、实时信号的处理，并且可以获取和修改信号处理方式。
+>
+> 参数：
+>
+> - `signum`：要设置处理程序的信号编号
+>  - `act`：指向`struct sigaction`结构的指针，包含信号处理程序的信息。`struct sigaction`结构包含以下成员：
+>    - `void (*sa_handler)(int signum)`：指向简单信号处理函数的函数指针。
+>    - `void (*sa_sigaction)(int signum, siginfo_t *info, void *context)`：指向复杂信号处理函数的函数指针。
+>    - `sigset_t sa_mask`：信号阻塞集，指定在执行信号处理程序期间要阻塞的其他信号。
+>    - `int sa_flags`：信号处理的标志，用于指定处理方式。
+>
+>   - `oldact`：可选参数，用于存储之前的信号处理程序的信息。
+>
+> `sigaction`函数返回0表示成功，-1表示失败。
+
+### 网络编程相关信号
+
+#### SIGHUP
+
+当挂起进程的控制终端时，会触发SIGHUP信号。对于没有控制终端的网络后台程序， SIGHUP信号可以用来强制服务器重读配置文件。
+
+#### SIGPIPE
+
+默认情况下，向一个读端关闭的管道（或 socket 连接）写入数据会引发SIGPIPE信号。SIGPIPE信号的默认处理方式是终止进程。
+
+为了避免因为向读端关闭的管道写数据而导致进程终止，可以使用`send`函数的`MSG_NOSIGNAL`标志来禁用写操作触发SIGPIPE信号。
 
 # 三、Linux服务器程序框架
 
