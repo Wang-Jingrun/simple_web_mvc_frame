@@ -1,4 +1,13 @@
+**参考资料**：
+
+- [从零开始制作一个Webserver](https://blog.csdn.net/qq_52313711/category_12551665.html)
+
+- [Select、Poll、Epoll详解](https://www.jianshu.com/p/722819425dbd/)
+
+- [如果这篇文章说不清epoll的本质，那就过来掐死我吧！](https://zhuanlan.zhihu.com/p/63179839)
+
 # 一、Linux 网络编程基础 API
+
 ## 1.socket地址API
 ### 主机字节序和网络字节序
 一个32位计算机的CPU累加器一次能累加4字节的数据，而这4字节的数据在内存中排列的顺序是可以有2种方式的，即大端字节序和小端字节序
@@ -262,7 +271,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 
 # 二、高级I/O函数
 
-## 1.pipe函数
+## 1.pipe 函数
 
 > ```cpp
 > #include <unistd.h>
@@ -281,7 +290,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 > - 成功创建返回0，失败：返回-1。
 >
 
-## 2.dup函数和dup2函数
+## 2.dup 函数和 dup2 函数
 
 > ```cpp
 > #include <unistd.h>
@@ -310,7 +319,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 > 返回值：
 > - 成功返回目标文件描述符的值，失败返回-1
 
-## 3.readv函数和writev函数
+## 3.readv 函数和 writev 函数
 
 > ```cpp
 > #include <sys/uio.h>
@@ -348,7 +357,7 @@ printf("recv: connfd=%d msg=%s\n", connfd, buf);
 
 HTTP应答可以用 writev 函数实现
 
-## 4.sendfile函数
+## 4.sendfile 函数
 
 > ```cpp
 > #include <sys/sendfile.h>
@@ -368,7 +377,7 @@ HTTP应答可以用 writev 函数实现
 >
 > - 成功传输返回实际传输的字节数，返回-1。
 
-## 5.mmap函数和munmap函数
+## 5.mmap 函数和 munmap 函数
 
 > ```cpp
 > #include <sys/mman.h>
@@ -406,7 +415,7 @@ HTTP应答可以用 writev 函数实现
 >
 > - 成功返回0，失败返回-1。
 
-## 6.splice函数
+## 6.splice 函数
 
 > ```cpp
 > #include <fcntl.h>
@@ -430,7 +439,7 @@ HTTP应答可以用 writev 函数实现
 
 一般两个splice函数成对使用，一个往管道里写，一个从管道里读
 
-## 7.tee函数
+## 7.tee 函数
 
 > ```cpp
 > #include <fcntl.h>
@@ -452,7 +461,7 @@ HTTP应答可以用 writev 函数实现
 
 调用 `tee` 函数后，数据将从源文件描述符读取到用户空间缓冲区，然后再从用户空间缓冲区复制到目标文件描述符。这种复制方式涉及用户空间和内核空间之间的数据拷贝，效率相对较低。与 `splice` 函数相比，`tee` 函数的主要优点是可以在复制过程中查看数据，而不仅仅是传输到目标文件描述符。
 
-## 8.fcntl函数
+## 8.fcntl 函数
 
 > ```cpp
 > #include <fcntl.h>
@@ -548,9 +557,649 @@ I/O处理单元：
    - 非阻塞I/O：非阻塞I/O模型相对复杂，需要处理错误码和轮询操作状态的逻辑，以便适时重试或等待操作完成。
    - 异步I/O：异步I/O模型相对复杂，需要处理回调函数、事件通知等异步操作的管理和状态，并可能依赖特定的异步I/O接口和函数。
 
-### I/O多路复用
+### <font color="red"> I/O多路复用 </font>
 
-在多路复⽤IO模型中，会有⼀个专⻔的线程不断去轮询多个socket的状态，只有当socket真正有读写事件时，才真正调⽤实际的IO读写操作。IO多路复⽤的优势在于，可以处理⼤量并发的IO，⽽不⽤消耗太多CPU/内存。
+在多路复用IO模型中，会有一个专门的线程不断去轮询多个socket的状态，只有当socket真正有读写事件时，才真正调用实际的IO读写操作。IO多路复用的优势在于，可以处理大并发的IO，而不用消耗太多CPU/内存。
+
+虽然I/O复用能同时监听多个文件描述符，但是其本身是阻塞的，当主线程已经监听到多个文件描述符时，如果不采用并发技术（线程池等），那么程序也只能按顺序一个一个去处理这些文件描述符。
+
+#### select 模型
+
+select模型核心在于系统函数`select()`函数上，它用于监听一个或多个套接字的状态，对每一个套接字，调用者可查询它的可读性、可写性及错误状态信息。用`fd_set`结构来表示一组等待检查的套接字，在调用返回时，这个结构存有满足一定条件的套接字组的子集，并且`select()`返回满足条件的套接字的数量。
+
+![img](imgs/15744422-fda6bf9dd993626e.jpg)
+
+##### select 函数
+
+> ```cpp
+> #include <sys/select.h>
+> int select(int nfds, 
+>         fd_set *readfds, 
+>         fd_set *writefds, 
+>         fd_set *exceptfds, 
+>         struct timeval *timeout);
+> ```
+>
+> 参数说明：
+>
+> - `nfds`：需要监听的最大文件描述符数量+1
+> - `readfds`：监听读就绪的文件描述符集合
+> - `writefds`：监听写就绪的文件描述符集合
+> - `exceptfds`：监听异常发生的文件描述符集合
+> - `timeout`：用于设置`select`函数的超时时间。
+> 	
+> 	- ```cpp
+> 	  struct timeval {
+> 	  	long tv_sec;	// seconds
+> 	  	long tv_usec;	// microseconds
+> 	  }
+> 	  ```
+> 	
+> 	  如果为`NULL`，则select函数将一直阻塞，直到有I/O操作完成；
+> 	
+> 	  设置 `timeval`，等待固定时间；
+> 	
+> 	  设置 `timeval` 里的时间均为0，检测描述字后立即返回。
+>
+> 返回值：
+>
+> - 成功：表示有多少个文件描述符有就绪事件发生
+>
+> - 错误：返回-1
+>
+> - 超时：返回0
+>
+
+##### fd_set 结构体
+
+`fd_set`是一个数组的宏定义，实际上它是一个长度为 16 的 long 类型数组，每一个数组元素都能与一个打开的套接字建立联系，建立联系的工作由程序完成，当调用 `select()` 时，由内核根据IO状态修改 `fd_set` 的内容，由此来通知哪个套接字可读。
+
+`fd_set`的定义如下：
+
+```cpp
+typedef struct fd_set {
+    long __fds_bits[16];
+} fd_set;
+```
+
+![image-20240303162644098](imgs/image-20240303162644098.png)
+
+
+
+![image-20240303194838960](imgs/image-20240303194838960.png)
+
+`fd_set`结构体的操作通常使用以下宏函数：
+
+- `FD_ZERO(fd_set *set)`：将`set`所指向的`fd_set`结构体清零，将所有位都设置为0。
+
+- `FD_SET(int fd, fd_set *set)`：将`fd`所代表的文件描述符添加到`set`所指向的`fd_set`结构体中。
+
+- `FD_CLR(int fd, fd_set *set)`：将`fd`所代表的文件描述符从`set`所指向的`fd_set`结构体中移除。
+
+- `FD_ISSET(int fd, fd_set *set)`：判断`fd`所代表的文件描述符是否在`set`所指向的`fd_set`结构体中，若在则返回非零值，否则返回0。
+
+##### select 代码实现
+
+```cpp
+#include <socket/server_socket.h>
+#include <sys/select.h>
+using namespace yazi::socket;
+using namespace yazi::utility;
+
+int main()
+{
+    Singleton<Logger>::instance()->open("server.log");
+
+    ServerSocket server("127.0.0.1", 8080);
+
+    fd_set fds;
+    FD_ZERO(&fds);
+
+    // 把服务端的监听套接字加入 fd_set
+    FD_SET(server.fd(), &fds);
+    int max_fd = server.fd();
+
+    while (true)
+    {
+       // 最大套接字、可读事件监听、可写事件监听、异常集合监听、超时时间
+       // select 会修改传入的 fds 的值，因此不能直接传入
+       fd_set read_fds = fds;
+       int ret = select(max_fd + 1, &read_fds, nullptr, nullptr, nullptr);
+
+       if (ret < 0)
+       {
+          log_error("select error: errno=%d, errmsg=%s", errno, strerror(errno));
+          break;
+       }
+       else if (ret == 0)
+       {
+          log_error("select timeout");
+          continue;
+       }
+
+       // 遍历可读的套接字
+       log_debug("select ok: ret=%d", ret);
+       for (int fd = 0; fd < max_fd + 1; ++fd)
+       {
+          if (!FD_ISSET(fd, &read_fds))
+          {
+             continue;
+          }
+
+          if (fd == server.fd())
+          {
+             // 服务端监听套接字可读
+             int connfd = server.accept();
+             if (connfd < 0)
+             {
+                continue;
+             }
+             FD_SET(connfd, &fds);
+             if (max_fd < connfd)
+             {
+                max_fd = connfd;
+             }
+          }
+          else
+          {
+             // 连接套接字可读，接收客户端数据
+             Socket client(fd);
+
+             char buf[1024] = { 0 };
+             size_t len = client.recv(buf, sizeof(buf));
+             if (len == 0)
+             {
+                log_debug("socket closed by peer: conn=%d", fd);
+                FD_CLR(fd, &fds);
+                client.close();
+             }
+             else if (len > 0)
+             {
+                log_debug("recv: conn=%d msg=%s", fd, buf);
+
+                // 向客户端发送数据
+                client.send(buf, len);
+
+                // 使用 clear 使 m_sockfd=0，以免析构函数调用 close 主动关闭连接
+                client.clear();
+             }
+          }
+       }
+    }
+
+    return 0;
+}
+```
+
+##### select 模型总结
+
+优点：
+
+- select 用法简单
+- select 几乎所有的平台都支持，可移植性好
+- select 对于超时提供了更好的精度：微秒，而 poll 和 epoll 是毫秒
+
+缺点：
+
+- 单个进程可监听的 fd 数量有限制（最多允许 1024 个连接）
+- 需要维护一个用来存放大量 fd 的数据结构，这样会使得用户空间和内核空间在传递该结构时，复制开销大
+- 对 fd 进行扫描时是线性扫描。fd 剧增后， IO效率低，因为每次调用都对 fd 进行线性扫描遍历，所以随着 fd 的增加会造成遍历速度慢的性能问题
+
+#### poll 模型
+
+使用 poll 函数时，需要创建一个 `pollfd` 结构体的数组，每个结构体表示一个要监听的文件描述符和相应的事件。 poll 通过传递一个 `pollfd` 数组给函数，避免了 select 中需要重复传递整个文件描述符集合的问题，同时没有最大文件描述符数量的限制。
+
+但是 poll 与 select 在本质上没有多大差别，管理多个描述符也是进行轮询，根据描述符的状态进行处理。poll和select同样存在一个缺点就是，包含**大量文件描述符的数组被整体复制于用户态和内核的地址空间之间**，而不论这些文件描述符是否就绪，它的开销随着文件描述符数量的增加而线性增大。
+
+##### poll 函数
+
+> ```cpp
+> #include <poll.h>
+> int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+> ```
+>
+> 参数说明：
+>
+> - `fds`：指向一个 `pollfd` 结构体数组的指针。数组中每个成员都代表一个特定的文件描述符以及对它感兴趣的事件和发生的事件
+> - `nfds`：`fds` 数组的成员数量
+> - `timeout`：用于设置`poll `函数的超时时间。
+>   - -1 表示 `poll` 函数将会无限期的阻塞
+>   - 0 表示 `poll` 将会立即返回
+>   - 大于 0 表示 `poll` 将等待一段时间再返回
+>
+> 返回值：
+>
+> - 成功：表示有多少个文件描述符有就绪事件发生
+>
+> - 错误：返回 -1
+>
+> - 超时：返回 0
+
+##### pollfd 结构体
+
+> `pollfd `的定义如下：
+>
+> ```cpp
+> typedef struct pollfd {
+>     int		fd;			// 文件描述符
+>     short	events;		// 要监听的事件
+>     short	revents;	// 实际发生的事件
+> };
+> ```
+>
+> - `fds`：需要被 `poll` 监控的文件描述符
+> - `events` ：一组标志位，表示对应的文件描述符上我们感兴趣的事件。比如：`POLLIN`（有数据可读），`POLLOUT`（写数据不会阻塞），`POLLERR`（错误事件），`POLLHUP`（挂起事件）等。
+> - `revents`：一组标志位，表示在对应的文件描述符上实际发生了哪些事件。这是 `poll` 调用返回后由内核填充的。
+
+当调用 `poll` 函数时，内核会检查每个 `pollfd` 结构体中列出的文件描述符，看看是否有任何指定的事件发生。如果有，内核会将在 `revents` 字段中设置相应的位，以指示哪些事件已经发生。然后 `poll` 函数返回，应用程序可以检查每个 `pollfd` 结构的 `revents` 字段来确定每个文件描述符上发生可哪些事件。
+
+- 当需要监听多个事件时，使用 `events | POLLIN` 设置 `events` 域；
+
+- 当 `poll` 调用之后检测某事件是否就绪时， `revents & POLLIN` 进行判断。
+
+##### poll 代码实现
+
+```cpp
+#include <iostream>
+#include <socket/server_socket.h>
+using namespace yazi::socket;
+
+#include <poll.h>
+
+#define MAX_CONN 1024
+
+int main()
+{
+    Singleton<Logger>::instance()->open("./../server.log");
+
+    ServerSocket server("127.0.0.1", 8080);
+
+    // 定义一个 poll 结构体数组
+    struct pollfd fds[MAX_CONN];
+    for (int i = 0; i < MAX_CONN; i++)
+    {
+        fds[i].fd = -1;
+    }
+
+    // 把服务端套接字加入队列里
+    fds[0].fd = server.fd();
+    fds[0].events = POLLIN;
+
+    int max_fd = 0; // 在结构体数组中的目前最大下标是 0
+
+    while (true)
+    {
+        int num = poll(fds, max_fd + 1, -1); // -1 表示一直等待
+        if (num < 0)
+        {
+            log_error("poll error: errno=%d errmsg=%s", errno, strerror(errno));
+            break;
+        }
+        else if (num == 0)
+        {
+            log_debug("poll timeout");
+            continue;
+        }
+
+        log_debug("poll ok: ret=%d", num);
+
+        for (int i = 0; i < max_fd + 1; i++)
+        {
+            if (!(fds[i].revents & POLLIN)) // 注意这里不能直接用 == 来判断
+            {
+                continue;
+            }
+			
+            // 还有事件发生的文件描述符数量
+            if (num-- == 0)
+            {
+                break;
+            }
+
+            if (i == 0)
+            {
+                // 服务端套接字可读
+                int connfd = server.accept();
+                if (connfd < 0)
+                {
+                    log_error("server accept error: errno=%d errmsg=%s", errno, strerror(errno));
+                }
+                else
+                {
+                    // 把连接套接字加入到监听队列中
+                    for (int k = 0; k < MAX_CONN; k++)
+                    {
+                        if (fds[k].fd == -1) // 找到空闲的 poll fd
+                        {
+                            fds[k].fd = connfd;
+                            fds[k].events = POLLIN;
+
+                            if (max_fd < k)
+                            {
+                                max_fd = k;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // 连接套接字可读
+                Socket client(fds[i].fd);
+
+                // 接收客户端的数据
+                char buf[1024] = {0};
+                size_t len = client.recv(buf, sizeof(buf));
+                if (len < 0)
+                {
+                    log_error("recv error: errno=%d errmsg=%s", errno, strerror(errno));
+                }
+                else if (len == 0)
+                {
+                    log_debug("socket closed by peer: conn=%d", fds[i].fd);
+                    fds[i].fd = -1;
+                    client.close();
+                }
+                else
+                {
+                    log_debug("recv: connfd=%d msg=%s", fds[i].fd, buf);
+                    // 向客户端发送数据
+                    client.send(buf, len);
+                }
+            }
+        }
+    }
+
+    server.close();
+
+    return 0;
+}
+```
+
+##### poll 模型总结
+
+优点：
+
+- 没有描述符个数的限制
+- poll 在应付大数目的文件描述符的时候相比于 select 速度更快
+
+缺点：
+
+- 大量的 fd 在用户空间和内核空间之间复制，复制开销大；
+- 与 select 一样，poll 返回后，需要轮询 fd 来获取就绪的描述符
+
+#### epoll 模型
+
+epoll  可以理解为 event poll(基于事件的轮询)，epoll 是一个高性能 I/O 事件通知机制，它是 Linux 内核提供的一种 I/O 多路复用方式。与其他传统的 I/O 多路复用机制 select 和 poll 相比，epoll 具有更高的扩展性和效率。epoll 性能非常高，并且随着监听的文件描述符的增加，epoll 的优势更明显。
+
+##### 工作原理
+
+epoll 在 Linux 内核中申请了一个简易的文件系统，用于存储相关的对象，每一个 epoll 对象都有一个独立的 `eventpoll` 结构体，这个结构体会在内核空间中创造独立的内存，用于存储使用 `epoll_ctl` 方法向 epoll 对象中添加进来的事件。这些事件都会挂到 rbr 红黑树中，这样，重复添加的事件就可以通过红黑树而高效地识别出来。
+
+详细描述：[Select、Poll、Epoll详解](https://www.jianshu.com/p/722819425dbd/)
+
+![img](imgs/15744422-32af7c797010bf43.jpg)
+
+**工作模式**：
+
+- 水平触发 LT（Level Trigger）：只有缓冲区中有数据，就一只通知有读事件。
+	- 适合场景：数据较多的情况下，一次性读数据读不完
+	- 特点：用法简单，但性能没有 ET 高
+
+- 边缘触发 ET（Edge Trigger）：缓冲区中有数据只会通知一次，之后再有新的数据到来才会通知（若是读数据的时候没有读完，则剩余的数据不会再通知，直到有新的数据到来）
+	- 适合场景：小数据量，一次性能够读完
+	- 特点：性能更高，但用法较复杂
+
+##### epoll_create 函数
+
+> ```cpp
+> #include <sys/epoll.h>
+> int epoll_create(int size);
+> ```
+>
+> 功能：`epoll_create` 会创建一个 epoll 实例并返回该实例对应的文件描述符 fd。在内核中，每个 epoll 实例会和一个 `struct eventpoll` 类型的对象一一对应，该对象是 epoll 的核心。
+>
+> 参数说明：
+>
+> - `size`：表明是要指定这个epoll 实例可以监控的最大套接字个数，但是在 Linux 2.6.8 内核版本以后，这个参数内核已经不再处理了（就是没有限制了），但是必须大于 1。
+>
+> 返回值：
+>
+> - 成功：返回 epoll 句柄，该句柄代表着一个 eventpoll 结构体。
+> - 失败：返回 -1
+
+##### epoll_ctl 函数
+
+> ```cpp
+> #include <sys/epoll.h>
+> int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+> ```
+>
+> 功能：`epoll_ctl` 函数用于控制 epoll 实例中的事件。通过将事件结构体(`epoll_event`)传递给 `epoll_ctl` 函数进行添加、修改或删除操作，可以实现对特定文件描述符的事件管理。
+>
+> 参数说明：
+>
+> - `epfd`：epoll 实例的文件描述符，即通过 `epoll_create` 函数创建的返回值。
+>
+>  - `op`：操作类型，可以是以下值之一：
+>
+> 	- `EPOLL_CTL_ADD`：将文件描述符 `fd` 添加到 epoll 实例中，关注 `event` 中指定的事件。
+>	- `EPOLL_CTL_MOD`：修改已经在 epoll 实例中的文件描述符 `fd` 的事件，使用 `event` 中指定的事件替换原有的事件。
+>	- `EPOLL_CTL_DEL`：从 epoll 实例中删除文件描述符 `fd`。
+>
+> - `fd`：需要进行操作的文件描述符。
+>
+> - `event`：指向 `struct epoll_event` 的指针，表示要添加、修改或删除的事件。
+>
+> 返回值：
+>
+> - 成功：返回 0。
+> - 失败：返回 -1，并设置相应的错误码。
+
+##### epoll_event 结构体
+
+> ```cpp
+> typedef union epoll_data {
+>     void *ptr;
+>     int fd;
+>     uint32_t u32;
+>     uint64_t u64;
+> } epoll_data_t;
+> 
+> struct epoll_event {
+>     __uint32_t events;  // epoll 监听的事件类型
+>     epoll_data_t data;  // 用户数据
+> };
+> ```
+>
+> - `events` 字段表示关注的事件类型，通过位掩码的方式表示不同的事件，可以同时设置多个，通过“|”连接，可选项如下：
+> 	- `EPOLLIN`：可读事件，表示对应的文件描述符上有数据可读。
+> 	- `EPOLLOUT`：可写事件，表示对应的文件描述符可写。
+> 	- `EPOLLERR`：错误事件，表示对应的文件描述符发生错误。
+> 	- `EPOLLHUP`：挂起事件，表示对应的文件描述符被挂起，通常与错误事件一起使用。
+> 	- `EPOLLET`：边缘触发模式，表示使用边缘触发方式监听事件。当文件描述符上有新的事件到达时，只会触发一次通知，需要一次性处理完所有事件。
+> 	- `EPOLLONESHOT`：一次性事件，表示对应的文件描述符上的事件只会被触发一次，触发后需要重新设置事件。
+>
+> - `data` 字段用于存储用户数据，它是一个联合体类型 `epoll_data_t`，可以表示不同的数据类型：
+>   - `void *ptr`：指针类型数据。
+>   - `int fd`：整型文件描述符。
+
+##### epoll_wait 函数
+
+> ```cpp
+> #include <sys/epoll.h>
+> int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
+> ```
+>
+> 功能：`epoll_wait` 函数用于等待事件的发生并获取已经就绪的事件。
+>
+> 参数说明：
+>
+> - `epfd`：epoll 实例的文件描述符，即通过 `epoll_create` 函数创建的返回值。
+>
+>  - `events`：指向用于存储就绪事件的数组的指针。
+>
+> - `maxevents`：指定 `events` 数组的最大大小，即最多可以存储的事件数量。
+>
+>  - timeout：等待的超时时间，以毫秒为单位。可以是以下值之一：
+>
+>	- `-1`：无限等待，直到有事件发生。
+>	- `0`：立即返回，不等待任何事件。
+>	- 大于 `0`：等待指定的毫秒数后返回，如果在超时之前没有事件发生。
+>
+> 返回值：
+>
+> - 成功：返回 0。
+> - 失败：返回 -1，并设置相应的错误码。
+
+##### epoll 代码实现
+
+```cpp
+#include <sys/epoll.h>
+#include <socket/server_socket.h>
+using namespace yazi::socket;
+using namespace yazi::utility;
+
+#define MAX_CONN 1024
+
+int main()
+{
+	Singleton<Logger>::instance()->open("./../server.log");
+
+	ServerSocket server("127.0.0.1", 8080);
+
+	// 1、创建 epoll 实例
+	int epfd = epoll_create(MAX_CONN);
+	if (epfd < 0)
+	{
+		log_error("epoll create error: errno=%d errmsg=%s", errno, strerror(errno));
+		return -1;
+	}
+
+	// 2、将服务端套接字添加到监听队列
+	struct epoll_event ev;
+	ev.events = (EPOLLIN | EPOLLHUP | EPOLLERR);
+	ev.data.fd = server.fd();
+	::epoll_ctl(epfd, EPOLL_CTL_ADD, server.fd(), &ev);
+
+	// 3、接收内核返回的就绪事件列表
+	struct epoll_event events[MAX_CONN];
+
+	while (true)
+	{
+		int num = ::epoll_wait(epfd, events, MAX_CONN, -1);
+		if (num < 0)
+		{
+			log_error("epoll wait error: errno=%d errmsg=%s", errno, strerror(errno));
+			break;
+		}
+		else if (num == 0)
+		{
+			log_debug("epoll wait timeout");
+			continue;
+		}
+
+		for (int i = 0; i < num; i++)
+		{
+			if (events[i].data.fd == server.fd())
+			{
+				// 服务端套接字可读
+				int connfd = server.accept();
+
+				// 将新的连接套接字加入监听队列
+				struct epoll_event ev2;
+				ev2.events = (EPOLLIN | EPOLLHUP | EPOLLERR | EPOLLONESHOT);
+				ev2.data.fd = connfd;
+				::epoll_ctl(epfd, EPOLL_CTL_ADD, connfd, &ev2);
+			}
+			else
+			{
+				Socket socket(events[i].data.fd);
+				if (events[i].events & EPOLLHUP)
+				{
+					// 连接套接字挂断了
+					log_error("epoll hang up by peer: conn=%d errno=%d errmsg=%s", socket.fd(), errno, strerror(errno));
+					::epoll_ctl(epfd, EPOLL_CTL_DEL, socket.fd(), nullptr);
+					socket.close();
+				}
+				else if (events[i].events & EPOLLERR)
+				{
+					// 连接套接字发生错误
+					log_error("socket error: conn=%d errno=%d errmsg=%s", socket.fd(), errno, strerror(errno));
+					::epoll_ctl(epfd, EPOLL_CTL_DEL, socket.fd(), nullptr);
+					socket.close();
+				}
+				else if (events[i].events & EPOLLIN)
+				{
+					// 处理业务逻辑时，暂时不监听该套接字的事件
+					::epoll_ctl(epfd, EPOLL_CTL_DEL, socket.fd(), nullptr);
+
+					// 接收客户端数据
+					char buf[1024] = { 0 };
+					int len = socket.recv(buf, sizeof(buf));
+					if (len < 0)
+					{
+						log_error("socket connection abort: conn=%d errno=%d errmsg=%s",
+							socket.fd(),
+							errno,
+							strerror(errno));
+						socket.close();
+					}
+					else if (len == 0)
+					{
+						// 客户端主动关闭连接
+						log_debug("socket closed by peer: conn=%d", socket.fd());
+						socket.close();
+					}
+					else
+					{
+						// 读到了数据
+						log_debug("recv: conn=%d msg=%s", socket.fd(), buf);
+
+						// 向客户端发送数据
+						socket.send(buf, len);
+
+						// 继续监听该套接字
+						struct epoll_event ev3;
+						ev3.events = (EPOLLIN | EPOLLHUP | EPOLLERR | EPOLLONESHOT);
+						ev3.data.fd = socket.fd();
+						::epoll_ctl(epfd, EPOLL_CTL_ADD, socket.fd(), &ev3);
+					}
+				}
+			}
+		}
+	}
+
+	return 0;
+}
+```
+
+##### epoll 模型总结
+
+优点：
+
+- 没有描述符个数的限制
+- IO效率不随 fd 数目增加而线性下降
+- 使用 mmap 内存映射加速内核与用户空间的数据传递，不存在复制开销
+- 无需遍历整个被侦听的描述符集，只要遍历那些被内核IO事件唤醒而加入就绪队列的描述符集和就行了
+- epoll 除了提供 select/poll 那种IO事件的电平触发（Level Triggered）外，还提供了边沿触发（Edge Triggered），这就使得用户空间程序有可能缓存IO状态，减少 `epoll_wait` 的调用，提高应用程序的效率。
+
+缺点：
+
+- epoll 跨平台性不够、只能工作在 Linux 下
+
+#### select、poll、epoll 对比
+
+|     \      |                            select                            |                             poll                             |                            epoll                             |
+| :--------: | :----------------------------------------------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: |
+|  操作方式  |                             遍历                             |                             遍历                             |                             回调                             |
+|  工作模式  |                              LT                              |                              LT                              |                   LT，并且支持 ET 高效模式                   |
+|  底层实现  |                             数组                             |                             链表                             |                       哈希表（红黑树）                       |
+|  I/O效率   |          每次调用都进行线性遍历，时间复杂度为 O(n)           |          每次调用都进行线性遍历，时间复杂度为 O(n)           | 事件通知方式，每当 fd 就绪，系统注册的回调函数就会被调用，将就绪 fd 放放到 rdllist 里面。时间复杂度为 O(1) |
+| 最大连接数 |                  1024（x86）或 2048（x64）                   |                            无上限                            |                            无上限                            |
+|  fd 拷贝   |    每次调用 select，都需要把 fd 集合从用户态拷贝到内核态     |    每次调用 select，都需要把 fd 集合从用户态拷贝到内核态     | 调用 `epoll_ctl` 时拷贝进内核并保存，之后每次 `epoll_wait` 不拷贝 |
+|  事件集合  | 用户通过 3 个参数分别传入感兴趣的可读、可写及异常等事件，内核通过对这些参数的在线修改后反馈其中的就绪事件。这使得用户每次调用 select 都要重置这 3 个参数。 | 统一处理所有事件类型，因此只通过一个事件集参数，用户通过 `pollfd.events` 传入感兴趣的事件，内核通过修改 `pollfd.revents` 反馈其中就绪的事件。 | 内核通过一个事件表直接管理用户感兴趣的所有事件。因此每次调用 `epoll_wait` 时，无需反复传入用户感兴趣的事件，`epoll_wait` 系统调用的参数 `events` 仅用来反馈就绪的事件。 |
 
 ## 3.两种高效的事件处理模式
 
